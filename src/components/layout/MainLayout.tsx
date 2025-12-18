@@ -23,7 +23,10 @@ import {
   Ticket,
   Wallet,
   FileText,
-  ClipboardList
+  ClipboardList,
+  UsersRound,
+  Tag,
+  Settings
 } from "lucide-react";
 
 interface MainLayoutProps {
@@ -31,16 +34,16 @@ interface MainLayoutProps {
 }
 
 const MainLayout = ({ children }: MainLayoutProps) => {
-  const { signOut, profile } = useAuth();
+  const { signOut, profile, hasRole } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
 
-  // Utiliser le rôle directement du profil
-  const userRole = profile?.role || 'user';
-  const isAdmin = userRole === 'super_admin' || userRole === 'directeur_tc';
-  const canViewFinances = isAdmin || userRole === 'comptable' || userRole === 'responsable_zone';
-  const canViewRapports = isAdmin || userRole === 'responsable_zone';
+  // Use hasRole for secure role checking via user_roles table
+  const isAdmin = hasRole('super_admin') || hasRole('directeur_tc');
+  const canViewFinances = isAdmin || hasRole('comptable') || hasRole('responsable_zone');
+  const canViewRapports = isAdmin || hasRole('responsable_zone');
+  const canManageUsers = hasRole('super_admin');
 
   const menuItems = [
     { icon: LayoutDashboard, label: "Tableau de bord", path: "/dashboard" },
@@ -49,15 +52,20 @@ const MainLayout = ({ children }: MainLayoutProps) => {
     { icon: Sprout, label: "Plantations", path: "/plantations" },
     { icon: CreditCard, label: "Paiements", path: "/paiements" },
     { icon: Smartphone, label: "Paiements Wave", path: "/paiements-wave" },
-    { icon: Receipt, label: "Commissions", path: "/commissions" },
+    { icon: Receipt, label: "Commissions", path: "/commissions", show: canViewFinances },
     { icon: Wallet, label: "Portefeuilles", path: "/portefeuilles" },
     { icon: ClipboardList, label: "Portefeuille Clients", path: "/portefeuille-clients" },
-    { icon: BarChart3, label: "Rapports Techniques", path: "/rapports-techniques" },
-    { icon: FileText, label: "Rapports Financiers", path: "/rapports-financiers" },
+    { icon: BarChart3, label: "Rapports Techniques", path: "/rapports-techniques", show: canViewRapports },
+    { icon: FileText, label: "Rapports Financiers", path: "/rapports-financiers", show: canViewFinances },
     { icon: Ticket, label: "Tickets Support", path: "/tickets" },
-    { icon: UserCheck, label: "Demandes Compte", path: "/account-requests" },
-    { icon: Shield, label: "Paramètres", path: "/parametres" },
+    { icon: UserCheck, label: "Demandes Compte", path: "/account-requests", show: isAdmin },
+    { icon: UsersRound, label: "Équipes", path: "/equipes", show: isAdmin },
+    { icon: Shield, label: "Utilisateurs", path: "/utilisateurs", show: canManageUsers },
+    { icon: Tag, label: "Offres", path: "/offres", show: isAdmin },
+    { icon: Settings, label: "Paramètres", path: "/parametres", show: isAdmin },
   ];
+
+  const visibleMenuItems = menuItems.filter(item => item.show !== false);
 
   const handleLogout = async () => {
     await signOut();
@@ -75,7 +83,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
       </div>
       
       <nav className="flex-1 p-2 sm:p-4 space-y-1 overflow-y-auto">
-        {menuItems.map((item) => (
+        {visibleMenuItems.map((item) => (
             <Button
               key={item.path}
               variant="ghost"

@@ -9,7 +9,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Search, Users, Plus, Edit } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
+import { Search, Users, Plus, Edit, MoreHorizontal, CheckCircle, XCircle } from "lucide-react";
+import MainLayout from "@/components/layout/MainLayout";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 
 const Equipes = () => {
   const [equipes, setEquipes] = useState<any[]>([]);
@@ -23,8 +32,9 @@ const Equipes = () => {
 
   const [formData, setFormData] = useState({
     nom: "",
-    chef_equipe_id: "",
+    responsable_id: "",
     region_id: "",
+    actif: true,
   });
 
   const fetchData = async () => {
@@ -33,34 +43,28 @@ const Equipes = () => {
         .from("equipes")
         .select(`
           *,
-          chef:profiles!equipes_chef_equipe_id_fkey(nom_complet, telephone),
+          responsable:profiles!equipes_responsable_id_fkey(nom_complet, telephone),
           region:regions(nom)
         `)
         .order("created_at", { ascending: false });
 
-      const { data: regionsData, error: regionsError } = await (supabase as any)
+      const { data: regionsData } = await (supabase as any)
         .from("regions")
         .select("*")
         .order("nom");
 
-      const { data: profilesData, error: profilesError } = await (supabase as any)
+      const { data: profilesData } = await (supabase as any)
         .from("profiles")
         .select("id, nom_complet")
         .order("nom_complet");
 
       if (equipesError) throw equipesError;
-      if (regionsError) throw regionsError;
-      if (profilesError) throw profilesError;
 
       setEquipes(equipesData || []);
       setRegions(regionsData || []);
       setProfiles(profilesData || []);
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: error.message,
-      });
+      toast({ variant: "destructive", title: "Erreur", description: error.message });
     } finally {
       setLoading(false);
     }
@@ -83,34 +87,22 @@ const Equipes = () => {
           .eq("id", selectedEquipe.id);
 
         if (error) throw error;
-
-        toast({
-          title: "Succès",
-          description: "Équipe modifiée avec succès",
-        });
+        toast({ title: "Succès", description: "Équipe modifiée avec succès" });
       } else {
         const { error } = await (supabase as any)
           .from("equipes")
           .insert([formData]);
 
         if (error) throw error;
-
-        toast({
-          title: "Succès",
-          description: "Équipe créée avec succès",
-        });
+        toast({ title: "Succès", description: "Équipe créée avec succès" });
       }
 
       setIsFormOpen(false);
       setSelectedEquipe(null);
-      setFormData({ nom: "", chef_equipe_id: "", region_id: "" });
+      setFormData({ nom: "", responsable_id: "", region_id: "", actif: true });
       fetchData();
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: error.message,
-      });
+      toast({ variant: "destructive", title: "Erreur", description: error.message });
     }
   };
 
@@ -118,37 +110,56 @@ const Equipes = () => {
     setSelectedEquipe(equipe);
     setFormData({
       nom: equipe.nom,
-      chef_equipe_id: equipe.chef_equipe_id || "",
+      responsable_id: equipe.responsable_id || "",
       region_id: equipe.region_id || "",
+      actif: equipe.actif ?? true,
     });
     setIsFormOpen(true);
   };
 
+  const handleStatusChange = async (equipeId: string, newStatus: boolean) => {
+    try {
+      const { error } = await (supabase as any)
+        .from("equipes")
+        .update({ actif: newStatus })
+        .eq("id", equipeId);
+
+      if (error) throw error;
+      toast({
+        title: "Succès",
+        description: `Équipe ${newStatus ? "activée" : "désactivée"} avec succès`,
+      });
+      fetchData();
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Erreur", description: error.message });
+    }
+  };
+
   const filteredEquipes = equipes.filter((e) =>
     e.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    e.chef?.nom_complet?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    e.responsable?.nom_complet?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.region?.nom?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold">Gestion des Équipes</h2>
-          <p className="text-muted-foreground mt-1">
-            {equipes.length} équipe(s) enregistrée(s)
-          </p>
-        </div>
-        <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => {
-              setSelectedEquipe(null);
-              setFormData({ nom: "", chef_equipe_id: "", region_id: "" });
-            }}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nouvelle Équipe
-            </Button>
-          </DialogTrigger>
+    <ProtectedRoute>
+      <MainLayout>
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold">Gestion des Équipes</h1>
+              <p className="text-muted-foreground mt-1">{equipes.length} équipe(s) enregistrée(s)</p>
+            </div>
+            <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
+              <DialogTrigger asChild>
+                <Button onClick={() => {
+                  setSelectedEquipe(null);
+                  setFormData({ nom: "", responsable_id: "", region_id: "", actif: true });
+                }}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nouvelle Équipe
+                </Button>
+              </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>
@@ -167,13 +178,13 @@ const Equipes = () => {
                   </div>
 
                   <div>
-                    <Label htmlFor="chef">Chef d'équipe</Label>
+                    <Label htmlFor="responsable">Responsable</Label>
                     <Select
-                      value={formData.chef_equipe_id}
-                      onValueChange={(value) => setFormData({ ...formData, chef_equipe_id: value })}
+                      value={formData.responsable_id}
+                      onValueChange={(value) => setFormData({ ...formData, responsable_id: value })}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner un chef d'équipe" />
+                        <SelectValue placeholder="Sélectionner un responsable" />
                       </SelectTrigger>
                       <SelectContent>
                         {profiles.map((profile) => (
@@ -232,6 +243,15 @@ const Equipes = () => {
                     <div className="text-sm text-muted-foreground">Équipes Totales</div>
                   </div>
                 </div>
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-green-100 rounded-lg">
+                    <CheckCircle className="h-6 w-6 text-green-600" />
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold">{equipes.filter(e => e.actif).length}</div>
+                    <div className="text-sm text-muted-foreground">Équipes Actives</div>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -240,7 +260,7 @@ const Equipes = () => {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Rechercher par nom, chef ou région..."
+                placeholder="Rechercher par nom, responsable ou région..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -253,40 +273,65 @@ const Equipes = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nom de l'Équipe</TableHead>
-                  <TableHead>Chef d'Équipe</TableHead>
+                  <TableHead>Responsable</TableHead>
                   <TableHead>Contact</TableHead>
                   <TableHead>Région</TableHead>
+                  <TableHead>Statut</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
-                      Chargement...
-                    </TableCell>
+                    <TableCell colSpan={6} className="text-center py-8">Chargement...</TableCell>
                   </TableRow>
                 ) : filteredEquipes.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8">
-                      Aucune équipe trouvée
-                    </TableCell>
+                    <TableCell colSpan={6} className="text-center py-8">Aucune équipe trouvée</TableCell>
                   </TableRow>
                 ) : (
                   filteredEquipes.map((equipe) => (
                     <TableRow key={equipe.id}>
                       <TableCell className="font-medium">{equipe.nom}</TableCell>
-                      <TableCell>{equipe.chef?.nom_complet || "Non assigné"}</TableCell>
-                      <TableCell>{equipe.chef?.telephone || "-"}</TableCell>
+                      <TableCell>{equipe.responsable?.nom_complet || "Non assigné"}</TableCell>
+                      <TableCell>{equipe.responsable?.telephone || "-"}</TableCell>
                       <TableCell>{equipe.region?.nom || "Non assignée"}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEdit(equipe)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
+                        <Badge className={equipe.actif ? "bg-green-500" : "bg-red-500"}>
+                          {equipe.actif ? "Active" : "Inactive"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEdit(equipe)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Modifier
+                            </DropdownMenuItem>
+                            {equipe.actif ? (
+                              <DropdownMenuItem 
+                                onClick={() => handleStatusChange(equipe.id, false)}
+                                className="text-orange-600"
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Désactiver
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem 
+                                onClick={() => handleStatusChange(equipe.id, true)}
+                                className="text-green-600"
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Activer
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))
@@ -295,6 +340,8 @@ const Equipes = () => {
             </Table>
           </div>
         </div>
+      </MainLayout>
+    </ProtectedRoute>
   );
 };
 
