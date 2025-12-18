@@ -1,0 +1,27 @@
+{
+  "name": "Portail Abonné AgriCapital",
+  "short_name": "AgriCapital Pay",
+  "description": "Portail de paiement et gestion pour les partenaires abonnés AgriCapital - Consultez vos plantations et effectuez vos paiements en toute sécurité",
+  "start_url": "/pay",
+  "display": "standalone",
+  "background_color": "#00643C",
+  "theme_color": "#00643C",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/logo-agricapital.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/logo-agricapital.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "categories": ["finance", "business", "agriculture"],
+  "prefer_related_applications": false,
+  "lang": "fr"
+}
