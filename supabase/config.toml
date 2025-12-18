@@ -1,1 +1,25 @@
 project_id = "dzdihyddvgfiplglweiy"
+
+[functions.create-super-admin]
+verify_jwt = false
+
+[functions.create-user]
+verify_jwt = true
+
+[functions.send-account-request-notification]
+verify_jwt = false
+
+[functions.wave-notification]
+verify_jwt = false
+
+[functions.wave-reconciliation]
+verify_jwt = false
+
+[functions.wave-verification]
+verify_jwt = false
+
+[functions.fedapay-create-transaction]
+verify_jwt = false
+
+[functions.fedapay-webhook]
+verify_jwt = false
