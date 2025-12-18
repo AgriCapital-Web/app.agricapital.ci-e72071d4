@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Etape0Offre } from "@/components/forms/souscription/Etape0Offre";
 import { Etape1Souscripteur } from "@/components/forms/souscription/Etape1Souscripteur";
 import { Etape2Cotitulaire } from "@/components/forms/souscription/Etape2Cotitulaire";
+import { Etape0Offre } from "@/components/forms/souscription/Etape0Offre";
 import { Etape3Parcelle } from "@/components/forms/souscription/Etape3Parcelle";
 import { Etape4Enquete } from "@/components/forms/souscription/Etape4Enquete";
 import { Etape5Documents } from "@/components/forms/souscription/Etape5Documents";
@@ -60,10 +60,9 @@ const NouvelleSouscription = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Non authentifié");
 
-      const etape = nouvelleEtape || etapeActuelle;
+      const etape = nouvelleEtape ?? etapeActuelle;
       
       if (brouillonId) {
-        // Mise à jour du brouillon existant
         const { error } = await (supabase as any)
           .from("souscriptions_brouillon")
           .update({
@@ -75,7 +74,6 @@ const NouvelleSouscription = () => {
 
         if (error) throw error;
       } else {
-        // Création d'un nouveau brouillon
         const { data, error } = await (supabase as any)
           .from("souscriptions_brouillon")
           .insert({
@@ -129,44 +127,25 @@ const NouvelleSouscription = () => {
       const { data: genId, error: genErr } = await (supabase as any).rpc('generate_souscripteur_id');
       if (genErr) throw genErr;
 
-      // Créer le souscripteur (normalisation des enums en minuscules)
+      // Créer le souscripteur
       const { data: souscripteur, error: errorSous } = await (supabase as any)
         .from("souscripteurs")
         .insert({
           id_unique: genId,
           offre_id: formData.offre_id,
           civilite: formData.civilite?.toLowerCase() || 'm',
-          nom_complet: formData.nom_famille || "",
+          nom: formData.nom_famille || "",
           prenoms: formData.prenoms || "",
           date_naissance: formData.date_naissance || null,
           lieu_naissance: formData.lieu_naissance || "",
           type_piece: formData.type_piece?.toLowerCase() || 'cni',
           numero_piece: formData.numero_piece || "",
-          date_delivrance_piece: formData.date_delivrance_piece || null,
-          fichier_piece_url: formData.fichier_piece_url || null,
-          photo_profil_url: formData.photo_profil_url || null,
-          statut_marital: formData.statut_marital?.toLowerCase() || 'celibataire',
-          conjoint_nom_prenoms: formData.cotit_nom_famille && formData.cotit_prenoms ? `${formData.cotit_nom_famille} ${formData.cotit_prenoms}` : null,
-          conjoint_type_piece: formData.cotit_type_piece?.toLowerCase() || null,
-          conjoint_numero_piece: formData.cotit_numero_piece || null,
-          conjoint_date_delivrance: formData.cotit_date_delivrance || null,
-          conjoint_telephone: formData.cotit_telephone || null,
-          conjoint_whatsapp: formData.cotit_whatsapp || null,
-          conjoint_photo_identite_url: formData.cotit_photo_cni || null,
-          conjoint_photo_url: formData.cotit_photo_profil || null,
-          domicile_residence: formData.domicile || "",
           telephone: formData.telephone || "",
-          whatsapp: formData.whatsapp || "",
           email: formData.email || null,
-          type_compte: formData.type_compte || null,
-          numero_compte: formData.numero_compte || null,
-          nom_beneficiaire: formData.nom_beneficiaire || null,
-          banque_operateur: formData.banque_operateur || null,
           district_id: formData.district_id || null,
           region_id: formData.region_id || null,
           departement_id: formData.departement_id || null,
           sous_prefecture_id: formData.sous_prefecture_id || null,
-          created_by: user.id,
         })
         .select()
         .single();
@@ -180,10 +159,10 @@ const NouvelleSouscription = () => {
 
       toast({
         title: "✅ Souscription enregistrée",
-        description: `Référence: ${souscripteur.id_unique}`,
+        description: `Référence: ${souscripteur.id_unique || souscripteur.id}`,
       });
 
-      navigate("/planteurs");
+      navigate("/souscriptions");
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -195,14 +174,15 @@ const NouvelleSouscription = () => {
     }
   };
 
+  // Étapes de 1 à 7 (numérotation affichée)
   const etapes = [
-    { num: 0, titre: "Souscripteur", component: Etape1Souscripteur },
-    { num: 1, titre: "Co-titulaire", component: Etape2Cotitulaire },
-    { num: 2, titre: "Offre", component: Etape0Offre },
-    { num: 3, titre: "Parcelle", component: Etape3Parcelle },
-    { num: 4, titre: "Enquête", component: Etape4Enquete },
-    { num: 5, titre: "Documents", component: Etape5Documents },
-    { num: 6, titre: "Confirmation", component: Etape6Confirmation },
+    { num: 1, titre: "Souscripteur", component: Etape1Souscripteur },
+    { num: 2, titre: "Co-titulaire", component: Etape2Cotitulaire },
+    { num: 3, titre: "Offre", component: Etape0Offre },
+    { num: 4, titre: "Parcelle", component: Etape3Parcelle },
+    { num: 5, titre: "Enquête", component: Etape4Enquete },
+    { num: 6, titre: "Documents", component: Etape5Documents },
+    { num: 7, titre: "Confirmation", component: Etape6Confirmation },
   ];
 
   const EtapeComponent = etapes[etapeActuelle].component;
@@ -218,12 +198,12 @@ const NouvelleSouscription = () => {
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-2">
-          {etapes.map((etape) => (
+          {etapes.map((etape, index) => (
             <Button
               key={etape.num}
-              variant={etapeActuelle === etape.num ? "default" : "outline"}
+              variant={etapeActuelle === index ? "default" : "outline"}
               size="sm"
-              onClick={() => setEtapeActuelle(etape.num)}
+              onClick={() => setEtapeActuelle(index)}
               className="min-w-fit"
             >
               {etape.num}. {etape.titre}
