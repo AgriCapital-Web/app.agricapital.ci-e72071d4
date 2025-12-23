@@ -47,6 +47,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         description,
+        reference,
         amount: Math.round(amount),
         currency: { iso: 'XOF' },
         callback_url,
@@ -70,15 +71,40 @@ serve(async (req) => {
     console.log('FedaPay response:', JSON.stringify(data, null, 2));
 
     if (!response.ok) {
-      // Messages d'erreur plus explicites
-      if (data.message === "Erreur d'authentification.") {
+      if (data?.message === "Erreur d'authentification.") {
         throw new Error("Clé API FedaPay invalide ou expirée. Veuillez vérifier votre clé secrète dans les paramètres.");
       }
-      throw new Error(data.message || 'Failed to create transaction');
+      throw new Error(data?.message || 'Failed to create transaction');
     }
 
-    // Generate payment token/URL
-    const tokenResponse = await fetch(`${baseUrl}/v1/transactions/${data.v1.transaction.id}/token`, {
+    // FedaPay can return different shapes depending on API version:
+    // - { "id": ... }
+    // - { "v1/transaction": { id, payment_url, ... } }
+    const transaction = (data && (data["v1/transaction"] ?? data.v1?.transaction ?? data.transaction ?? data)) as any;
+    const transactionId = transaction?.id;
+
+    // Some FedaPay responses already include payment_url + payment_token.
+    if (transaction?.payment_url) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          transaction,
+          token: transaction?.payment_token,
+          payment_url: transaction?.payment_url,
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        }
+      );
+    }
+
+    if (!transactionId) {
+      throw new Error('Réponse FedaPay inattendue: id de transaction manquant');
+    }
+
+    // Otherwise, generate payment token/URL
+    const tokenResponse = await fetch(`${baseUrl}/v1/transactions/${transactionId}/token`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${secretKey}`,
@@ -87,14 +113,19 @@ serve(async (req) => {
     });
 
     const tokenData = await tokenResponse.json();
+    console.log('Token response status:', tokenResponse.status);
     console.log('Token response:', JSON.stringify(tokenData, null, 2));
+
+    if (!tokenResponse.ok) {
+      throw new Error(tokenData?.message || 'Failed to create payment token');
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
-        transaction: data.v1.transaction,
-        token: tokenData.token,
-        payment_url: tokenData.url
+        transaction,
+        token: tokenData?.token,
+        payment_url: tokenData?.url
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
