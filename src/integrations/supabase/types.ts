@@ -434,6 +434,65 @@ export type Database = {
           },
         ]
       }
+      fedapay_events: {
+        Row: {
+          amount: number | null
+          created_at: string
+          customer_email: string | null
+          customer_phone: string | null
+          event_id: string | null
+          event_type: string
+          id: string
+          paiement_id: string | null
+          processed: boolean | null
+          processed_at: string | null
+          raw_payload: Json | null
+          status: string | null
+          transaction_id: string | null
+          transaction_reference: string | null
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string
+          customer_email?: string | null
+          customer_phone?: string | null
+          event_id?: string | null
+          event_type: string
+          id?: string
+          paiement_id?: string | null
+          processed?: boolean | null
+          processed_at?: string | null
+          raw_payload?: Json | null
+          status?: string | null
+          transaction_id?: string | null
+          transaction_reference?: string | null
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string
+          customer_email?: string | null
+          customer_phone?: string | null
+          event_id?: string | null
+          event_type?: string
+          id?: string
+          paiement_id?: string | null
+          processed?: boolean | null
+          processed_at?: string | null
+          raw_payload?: Json | null
+          status?: string | null
+          transaction_id?: string | null
+          transaction_reference?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fedapay_events_paiement_id_fkey"
+            columns: ["paiement_id"]
+            isOneToOne: false
+            referencedRelation: "paiements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       historique_activites: {
         Row: {
           action: string
@@ -617,11 +676,13 @@ export type Database = {
         Row: {
           created_at: string
           date_paiement: string | null
+          fedapay_reference: string | null
           fedapay_transaction_id: string | null
           id: string
           metadata: Json | null
           mode_paiement: string | null
           montant: number
+          montant_paye: number | null
           plantation_id: string | null
           reference: string | null
           souscripteur_id: string | null
@@ -632,11 +693,13 @@ export type Database = {
         Insert: {
           created_at?: string
           date_paiement?: string | null
+          fedapay_reference?: string | null
           fedapay_transaction_id?: string | null
           id?: string
           metadata?: Json | null
           mode_paiement?: string | null
           montant: number
+          montant_paye?: number | null
           plantation_id?: string | null
           reference?: string | null
           souscripteur_id?: string | null
@@ -647,11 +710,13 @@ export type Database = {
         Update: {
           created_at?: string
           date_paiement?: string | null
+          fedapay_reference?: string | null
           fedapay_transaction_id?: string | null
           id?: string
           metadata?: Json | null
           mode_paiement?: string | null
           montant?: number
+          montant_paye?: number | null
           plantation_id?: string | null
           reference?: string | null
           souscripteur_id?: string | null

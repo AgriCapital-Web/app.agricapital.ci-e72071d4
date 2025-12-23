@@ -15,7 +15,6 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const webhookSecret = Deno.env.get('FEDAPAY_WEBHOOK_SECRET');
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -23,21 +22,39 @@ serve(async (req) => {
     console.log('FedaPay Webhook received:', JSON.stringify(body, null, 2));
 
     const { event, entity } = body;
+    const transactionId = entity?.id?.toString();
+    const reference = entity?.reference || entity?.custom_metadata?.reference;
 
-    // Verify webhook signature if secret is configured
-    const signature = req.headers.get('x-fedapay-signature');
-    if (webhookSecret && signature) {
-      // TODO: Implement signature verification
-      console.log('Webhook signature present:', signature);
+    // Store event in fedapay_events table
+    const { data: eventRecord, error: eventError } = await supabase
+      .from('fedapay_events')
+      .insert({
+        event_id: body?.id?.toString(),
+        event_type: event,
+        transaction_id: transactionId,
+        transaction_reference: reference,
+        status: entity?.status,
+        amount: entity?.amount,
+        customer_email: entity?.customer?.email,
+        customer_phone: entity?.customer?.phone_number?.number,
+        raw_payload: body,
+        processed: false
+      })
+      .select()
+      .single();
+
+    if (eventError) {
+      console.error('Error storing event:', eventError);
+    } else {
+      console.log('Event stored:', eventRecord?.id);
     }
 
     // Handle different event types
+    let paiementUpdated = false;
+    
     switch (event) {
       case 'transaction.approved':
       case 'transaction.completed': {
-        const transactionId = entity?.id?.toString();
-        const reference = entity?.reference || entity?.custom_metadata?.reference;
-        
         console.log(`Processing approved/completed transaction: ${transactionId}, reference: ${reference}`);
 
         if (reference) {
@@ -47,21 +64,62 @@ serve(async (req) => {
             .update({
               statut: 'valide',
               fedapay_transaction_id: transactionId,
+              fedapay_reference: entity?.reference,
+              montant_paye: entity?.amount,
               date_paiement: new Date().toISOString(),
               metadata: {
-                ...entity,
+                fedapay_entity: entity,
+                webhook_event: event,
                 webhook_received_at: new Date().toISOString()
               }
             })
             .eq('reference', reference)
-            .select();
+            .select()
+            .single();
 
           if (error) {
             console.error('Error updating payment:', error);
-            throw error;
-          }
+          } else {
+            console.log('Payment updated successfully:', data?.id);
+            paiementUpdated = true;
+            
+            // Link event to paiement
+            if (eventRecord?.id && data?.id) {
+              await supabase
+                .from('fedapay_events')
+                .update({ paiement_id: data.id, processed: true, processed_at: new Date().toISOString() })
+                .eq('id', eventRecord.id);
+            }
 
-          console.log('Payment updated successfully:', data);
+            // If DA payment, update plantation superficie_activee
+            if (data?.type_paiement === 'DA' && data?.plantation_id) {
+              const { data: plantation } = await supabase
+                .from('plantations')
+                .select('superficie_ha, superficie_activee, montant_da')
+                .eq('id', data.plantation_id)
+                .single();
+
+              if (plantation) {
+                const montantDA = plantation.montant_da || 30000;
+                const superficiePayee = (data.montant_paye || data.montant) / montantDA;
+                const nouvelleSuperficie = Math.min(
+                  plantation.superficie_ha,
+                  (plantation.superficie_activee || 0) + superficiePayee
+                );
+
+                await supabase
+                  .from('plantations')
+                  .update({
+                    superficie_activee: nouvelleSuperficie,
+                    date_activation: plantation.superficie_activee === 0 ? new Date().toISOString() : undefined,
+                    statut_global: nouvelleSuperficie >= plantation.superficie_ha ? 'actif' : 'da_partiel'
+                  })
+                  .eq('id', data.plantation_id);
+
+                console.log(`Plantation ${data.plantation_id} updated: superficie_activee = ${nouvelleSuperficie}`);
+              }
+            }
+          }
         }
         break;
       }
@@ -69,28 +127,36 @@ serve(async (req) => {
       case 'transaction.declined':
       case 'transaction.failed':
       case 'transaction.cancelled': {
-        const transactionId = entity?.id?.toString();
-        const reference = entity?.reference || entity?.custom_metadata?.reference;
-        
         console.log(`Processing failed/declined transaction: ${transactionId}`);
 
         if (reference) {
-          const { error } = await supabase
+          const { data, error } = await supabase
             .from('paiements')
             .update({
               statut: 'echec',
               fedapay_transaction_id: transactionId,
+              fedapay_reference: entity?.reference,
               metadata: {
-                ...entity,
-                failure_reason: entity?.reason || event,
+                fedapay_entity: entity,
+                failure_reason: entity?.last_error_code || event,
+                webhook_event: event,
                 webhook_received_at: new Date().toISOString()
               }
             })
-            .eq('reference', reference);
+            .eq('reference', reference)
+            .select()
+            .single();
 
           if (error) {
             console.error('Error updating failed payment:', error);
-            throw error;
+          } else {
+            paiementUpdated = true;
+            if (eventRecord?.id && data?.id) {
+              await supabase
+                .from('fedapay_events')
+                .update({ paiement_id: data.id, processed: true, processed_at: new Date().toISOString() })
+                .eq('id', eventRecord.id);
+            }
           }
         }
         break;
@@ -101,7 +167,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, event }),
+      JSON.stringify({ success: true, event, paiementUpdated }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200 
