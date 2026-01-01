@@ -173,11 +173,15 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
       if (fedapayData?.payment_url) {
         toast({
           title: "Redirection vers FedaPay",
-          description: "Vous allez être redirigé vers la page de paiement sécurisée..."
+          description: "Ouverture de la page de paiement sécurisée..."
         });
 
-        // Rediriger vers la page de paiement FedaPay
-        window.location.href = fedapayData.payment_url;
+        // Dans l'aperçu (iframe) la navigation externe peut être bloquée : ouvrir dans un nouvel onglet.
+        const w = window.open(fedapayData.payment_url, '_blank', 'noopener,noreferrer');
+        if (!w) {
+          // Fallback si le navigateur bloque les popups
+          window.location.href = fedapayData.payment_url;
+        }
       } else {
         toast({
           title: "Paiement initié",
