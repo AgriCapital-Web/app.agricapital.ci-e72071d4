@@ -119,7 +119,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
       const reference = `PAY-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
       
       // Créer le paiement en attente
-      const { error: insertError } = await supabase
+      const { data: paiementRow, error: insertError } = await supabase
         .from('paiements')
         .insert({
           souscripteur_id: souscripteur.id,
@@ -134,16 +134,18 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
             trimestre: periodType === 'trimestre' ? periodCount : null,
             annee: new Date().getFullYear()
           }
-        });
+        })
+        .select()
+        .single();
 
       if (insertError) throw insertError;
 
-      // Appeler l'edge function FedaPay
+      // Appeler la fonction backend FedaPay
       const { data: fedapayData, error: fedapayError } = await supabase.functions.invoke('fedapay-create-transaction', {
         body: {
           amount: montantTotal,
-          description: typePaiement === 'da' 
-            ? `Droit d'accès - ${plantation.nom || 'Plantation'}` 
+          description: typePaiement === 'da'
+            ? `Droit d'accès - ${plantation.nom || 'Plantation'}`
             : `Contribution - ${plantation.nom || 'Plantation'}`,
           reference,
           customer: {
@@ -152,18 +154,28 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
             email: souscripteur.email || 'client@agricapital.ci',
             phone: souscripteur.telephone
           },
-          callback_url: `${window.location.origin}/pay?status=success`
+          // FedaPay ajoute automatiquement ?id=XXX&status=YYY à cette URL
+          callback_url: `${window.location.origin}/pay?reference=${encodeURIComponent(reference)}`
         }
       });
 
       if (fedapayError) throw fedapayError;
+
+      // Enregistrer l'ID transaction (utile pour retrouver le paiement au retour)
+      const fedapayTransactionId = fedapayData?.transaction?.id?.toString();
+      if (fedapayTransactionId) {
+        await supabase
+          .from('paiements')
+          .update({ fedapay_transaction_id: fedapayTransactionId })
+          .eq('id', paiementRow.id);
+      }
 
       if (fedapayData?.payment_url) {
         toast({
           title: "Redirection vers FedaPay",
           description: "Vous allez être redirigé vers la page de paiement sécurisée..."
         });
-        
+
         // Rediriger vers la page de paiement FedaPay
         window.location.href = fedapayData.payment_url;
       } else {

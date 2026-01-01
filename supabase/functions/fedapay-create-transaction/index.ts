@@ -48,6 +48,7 @@ serve(async (req) => {
       body: JSON.stringify({
         description,
         reference,
+        merchant_reference: reference,
         amount: Math.round(amount),
         currency: { iso: 'XOF' },
         callback_url,

@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.fedapay-webhook]
 verify_jwt = false
+
+[functions.fedapay-verify-transaction]
+verify_jwt = false

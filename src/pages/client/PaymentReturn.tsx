@@ -23,74 +23,100 @@ const PaymentReturn = ({ onBack }: PaymentReturnProps) => {
   useEffect(() => {
     const checkPaymentStatus = async () => {
       if (!reference && !transactionId) {
-        // No reference, try to get from URL or show pending
         setStatus('pending');
         return;
       }
 
       try {
-        // Query payment by reference or fedapay_transaction_id
-        let query = supabase.from('paiements').select(`
-          *,
-          plantations (nom_plantation, id_unique),
-          souscripteurs (nom_complet, telephone)
-        `);
+        // 1) Si on a un transactionId, on vérifie côté serveur (ne pas faire confiance au status d'URL)
+        if (transactionId) {
+          const { data: verifyData, error: verifyError } = await supabase.functions.invoke(
+            'fedapay-verify-transaction',
+            { body: { transactionId } }
+          );
 
-        if (reference) {
-          query = query.eq('reference', reference);
-        } else if (transactionId) {
-          query = query.eq('fedapay_transaction_id', transactionId);
+          if (verifyError) throw verifyError;
+
+          const t = verifyData?.transaction;
+          const tStatus = (t?.status || t?.state || '').toString().toLowerCase();
+          const resolvedReference = reference || t?.merchant_reference || t?.reference || t?.custom_metadata?.reference;
+
+          // 2) Récupérer le paiement en base
+          let query = supabase.from('paiements').select(`
+            *,
+            plantations (nom_plantation, id_unique),
+            souscripteurs (nom_complet, telephone)
+          `);
+
+          if (resolvedReference) {
+            query = query.eq('reference', resolvedReference);
+          } else {
+            query = query.eq('fedapay_transaction_id', transactionId);
+          }
+
+          const { data: dbPaiement, error: dbError } = await query.maybeSingle();
+          if (dbError) throw dbError;
+
+          if (dbPaiement) {
+            setPaiement(dbPaiement);
+
+            const isApproved = tStatus === 'approved';
+            const isFailed = tStatus === 'declined' || tStatus === 'canceled' || tStatus === 'cancelled' || tStatus === 'failed' || tStatus === 'refused';
+
+            if (isApproved || isFailed) {
+              const { error: updateError } = await supabase
+                .from('paiements')
+                .update({
+                  statut: isApproved ? 'valide' : 'echec',
+                  fedapay_transaction_id: transactionId,
+                  montant_paye: isApproved ? (t?.amount ?? dbPaiement.montant) : 0,
+                  date_paiement: isApproved ? new Date().toISOString() : null,
+                })
+                .eq('id', dbPaiement.id);
+
+              if (!updateError) {
+                const updated = {
+                  ...dbPaiement,
+                  statut: isApproved ? 'valide' : 'echec',
+                  fedapay_transaction_id: transactionId,
+                  montant_paye: isApproved ? (t?.amount ?? dbPaiement.montant) : 0,
+                  date_paiement: isApproved ? new Date().toISOString() : null,
+                };
+                setPaiement(updated);
+                setStatus(isApproved ? 'success' : 'error');
+                return;
+              }
+            }
+
+            setStatus('pending');
+            return;
+          }
+
+          // paiement introuvable => pending
+          setStatus('pending');
+          return;
         }
 
-        const { data, error } = await query.maybeSingle();
+        // 3) Sinon, fallback: recherche par référence (attendre le webhook)
+        const { data, error } = await supabase
+          .from('paiements')
+          .select(`
+            *,
+            plantations (nom_plantation, id_unique),
+            souscripteurs (nom_complet, telephone)
+          `)
+          .eq('reference', reference)
+          .maybeSingle();
 
         if (error) throw error;
 
         if (data) {
           setPaiement(data);
-          
-          if (data.statut === 'valide') {
-            setStatus('success');
-          } else if (data.statut === 'echec' || data.statut === 'rejete') {
-            setStatus('error');
-          } else {
-            // Still pending, check URL status
-            if (fedapayStatus === 'approved' || fedapayStatus === 'completed' || fedapayStatus === 'success') {
-              // FedaPay says success but webhook hasn't processed yet
-              // Update locally
-              const { error: updateError } = await supabase
-                .from('paiements')
-                .update({
-                  statut: 'valide',
-                  fedapay_transaction_id: transactionId || undefined,
-                  date_paiement: new Date().toISOString(),
-                  montant_paye: data.montant
-                })
-                .eq('id', data.id);
-
-              if (!updateError) {
-                setStatus('success');
-                setPaiement({ ...data, statut: 'valide' });
-              } else {
-                setStatus('pending');
-              }
-            } else if (fedapayStatus === 'declined' || fedapayStatus === 'failed' || fedapayStatus === 'cancelled') {
-              const { error: updateError } = await supabase
-                .from('paiements')
-                .update({ statut: 'echec' })
-                .eq('id', data.id);
-
-              if (!updateError) {
-                setStatus('error');
-                setPaiement({ ...data, statut: 'echec' });
-              }
-            } else {
-              // Still waiting for webhook
-              if (checkCount < 5) {
-                setTimeout(() => setCheckCount(c => c + 1), 3000);
-              }
-              setStatus('pending');
-            }
+          if (data.statut === 'valide') setStatus('success');
+          else if (data.statut === 'echec' || data.statut === 'rejete') setStatus('error');
+          else {
+            if (checkCount < 10) setTimeout(() => setCheckCount(c => c + 1), 2500);
+            setStatus('pending');
           }
         } else {
           setStatus('pending');
@@ -102,7 +128,7 @@ const PaymentReturn = ({ onBack }: PaymentReturnProps) => {
     };
 
     checkPaymentStatus();
-  }, [reference, transactionId, fedapayStatus, checkCount]);
+  }, [reference, transactionId, checkCount]);
 
   const formatMontant = (m: number) => {
     return new Intl.NumberFormat("fr-FR").format(m || 0) + " F CFA";
