@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useKkiapay } from "@/hooks/useKkiapay";
 import logoWhite from "@/assets/logo-white.png";
 import { 
   ArrowLeft, 
@@ -31,29 +32,113 @@ interface ClientPaymentProps {
   onBack: () => void;
 }
 
-// Tarifs
-const TARIFS = {
+// Tarifs par offre - PalmElite par défaut
+const TARIFS_PALMELITE = {
   jour: 65,
   mois: 1900,
   trimestre: 5500,
   annee: 20000,
+  da_par_hectare: 20000
+};
+
+const TARIFS_PALMINVEST = {
+  jour: 120,
+  mois: 3400,
+  trimestre: 9500,
+  annee: 35400,
   da_par_hectare: 30000
+};
+
+const TARIFS_TERRAPALM = {
+  jour: 0,
+  mois: 0,
+  trimestre: 0,
+  annee: 0,
+  da_par_hectare: 10000
 };
 
 const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientPaymentProps) => {
   const { toast } = useToast();
+  const { openPayment, onSuccess, onFailed, onClose } = useKkiapay();
   const [step, setStep] = useState<'type' | 'plantation' | 'details' | 'confirm'>('type');
-  const [typePaiement, setTypePaiement] = useState<'da' | 'contribution'>('da');
+  const [typePaiement, setTypePaiement] = useState<'da' | 'redevance'>('da');
   const [selectedPlantation, setSelectedPlantation] = useState<string>('');
   const [periodType, setPeriodType] = useState<'jour' | 'mois' | 'trimestre' | 'annee' | 'custom'>('mois');
   const [periodCount, setPeriodCount] = useState<number>(1);
   const [customAmount, setCustomAmount] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [currentPaiementRef, setCurrentPaiementRef] = useState<string | null>(null);
 
   // Obtenir les infos de la plantation sélectionnée
   const plantation = useMemo(() => {
     return plantations.find(p => p.id === selectedPlantation);
   }, [selectedPlantation, plantations]);
+
+  // Déterminer les tarifs en fonction de l'offre du souscripteur
+  const TARIFS = useMemo(() => {
+    const offreCode = souscripteur?.offres?.code || 'PALMELITE';
+    switch (offreCode) {
+      case 'PALMINVEST':
+        return TARIFS_PALMINVEST;
+      case 'TERRAPALM':
+        return TARIFS_TERRAPALM;
+      default:
+        return TARIFS_PALMELITE;
+    }
+  }, [souscripteur]);
+
+  // Setup KKiaPay listeners
+  useEffect(() => {
+    onSuccess(async (response) => {
+      console.log('KKiaPay payment success:', response);
+      
+      if (currentPaiementRef) {
+        // Mettre à jour le paiement en base
+        const { error } = await supabase
+          .from('paiements')
+          .update({
+            statut: 'valide',
+            fedapay_transaction_id: response.transactionId,
+            date_paiement: new Date().toISOString(),
+            montant_paye: response.amount || 0,
+            metadata: {
+              kkiapay_transaction_id: response.transactionId,
+              method: response.method || null,
+              fees: response.fees || 0,
+              performed_at: response.performedAt || null
+            }
+          })
+          .eq('reference', currentPaiementRef);
+
+        if (error) {
+          console.error('Error updating payment:', error);
+        }
+      }
+
+      toast({
+        title: "Paiement réussi !",
+        description: `Transaction ${response.transactionId} validée avec succès.`
+      });
+      
+      // Retour à l'accueil après succès
+      setTimeout(() => onBack(), 2000);
+    });
+
+    onFailed((error) => {
+      console.log('KKiaPay payment failed:', error);
+      toast({
+        variant: "destructive",
+        title: "Paiement échoué",
+        description: error.reason || "Le paiement n'a pas pu être effectué."
+      });
+      setLoading(false);
+    });
+
+    onClose(() => {
+      console.log('KKiaPay widget closed');
+      setLoading(false);
+    });
+  }, [currentPaiementRef]);
 
   // Calculer le montant du DA
   const calculerMontantDA = () => {
@@ -71,7 +156,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
     const montantAttendu = joursDepuisActivation * TARIFS.jour * (plant.superficie_activee || 0);
     
     const paiementsContrib = paiements.filter(
-      p => p.plantation_id === plant.id && p.type_paiement === 'contribution' && p.statut === 'valide'
+      p => p.plantation_id === plant.id && p.type_paiement === 'REDEVANCE' && p.statut === 'valide'
     );
     const montantPaye = paiementsContrib.reduce((sum, p) => sum + (p.montant_paye || 0), 0);
     
@@ -86,8 +171,8 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
     }
   };
 
-  // Calculer le montant de la contribution
-  const calculerMontantContribution = () => {
+  // Calculer le montant de la redevance
+  const calculerMontantRedevance = () => {
     if (!plantation) return 0;
     const superficie = plantation.superficie_activee || plantation.superficie_ha || 1;
     
@@ -100,9 +185,9 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
   };
 
   // Montant total
-  const montantTotal = typePaiement === 'da' ? calculerMontantDA() : calculerMontantContribution();
+  const montantTotal = typePaiement === 'da' ? calculerMontantDA() : calculerMontantRedevance();
 
-  // Soumettre le paiement via FedaPay
+  // Soumettre le paiement via KKiaPay
   const handleSubmit = async () => {
     if (!plantation || montantTotal <= 0) {
       toast({
@@ -117,6 +202,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
     try {
       // Générer une référence unique
       const reference = `PAY-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+      setCurrentPaiementRef(reference);
       
       // Créer le paiement en attente
       const { data: paiementRow, error: insertError } = await supabase
@@ -124,7 +210,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
         .insert({
           souscripteur_id: souscripteur.id,
           plantation_id: plantation.id,
-          type_paiement: typePaiement === 'da' ? 'DA' : 'contribution',
+          type_paiement: typePaiement === 'da' ? 'DA' : 'REDEVANCE',
           montant: montantTotal,
           statut: 'en_attente',
           mode_paiement: 'Mobile Money',
@@ -132,7 +218,8 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
           metadata: {
             nombre_mois: periodType === 'mois' ? periodCount : (periodType === 'trimestre' ? periodCount * 3 : periodType === 'annee' ? periodCount * 12 : null),
             trimestre: periodType === 'trimestre' ? periodCount : null,
-            annee: new Date().getFullYear()
+            annee: new Date().getFullYear(),
+            payment_provider: 'kkiapay'
           }
         })
         .select()
@@ -140,54 +227,30 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
 
       if (insertError) throw insertError;
 
-      // Appeler la fonction backend FedaPay
-      const { data: fedapayData, error: fedapayError } = await supabase.functions.invoke('fedapay-create-transaction', {
-        body: {
-          amount: montantTotal,
-          description: typePaiement === 'da'
-            ? `Droit d'accès - ${plantation.nom || 'Plantation'}`
-            : `Contribution - ${plantation.nom || 'Plantation'}`,
+      // Ouvrir le widget KKiaPay
+      const opened = openPayment({
+        amount: Math.round(montantTotal),
+        email: souscripteur.email || 'client@agricapital.ci',
+        phone: souscripteur.telephone,
+        name: souscripteur.nom_complet || `${souscripteur.prenoms} ${souscripteur.nom}`,
+        data: {
           reference,
-          customer: {
-            firstname: souscripteur.prenoms || souscripteur.nom,
-            lastname: souscripteur.nom,
-            email: souscripteur.email || 'client@agricapital.ci',
-            phone: souscripteur.telephone
-          },
-          // FedaPay ajoute automatiquement ?id=XXX&status=YYY à cette URL
-          callback_url: `${window.location.origin}/pay?reference=${encodeURIComponent(reference)}`
+          paiement_id: paiementRow.id,
+          plantation_id: plantation.id,
+          type: typePaiement,
+          description: typePaiement === 'da'
+            ? `Droit d'accès - ${plantation.nom_plantation || 'Plantation'}`
+            : `Redevance - ${plantation.nom_plantation || 'Plantation'}`
         }
       });
 
-      if (fedapayError) throw fedapayError;
-
-      // Enregistrer l'ID transaction (utile pour retrouver le paiement au retour)
-      const fedapayTransactionId = fedapayData?.transaction?.id?.toString();
-      if (fedapayTransactionId) {
-        await supabase
-          .from('paiements')
-          .update({ fedapay_transaction_id: fedapayTransactionId })
-          .eq('id', paiementRow.id);
-      }
-
-      if (fedapayData?.payment_url) {
+      if (!opened) {
         toast({
-          title: "Redirection vers FedaPay",
-          description: "Ouverture de la page de paiement sécurisée..."
+          variant: "destructive",
+          title: "Erreur",
+          description: "Impossible d'ouvrir la page de paiement. Veuillez réessayer."
         });
-
-        // Dans l'aperçu (iframe) la navigation externe peut être bloquée : ouvrir dans un nouvel onglet.
-        const w = window.open(fedapayData.payment_url, '_blank', 'noopener,noreferrer');
-        if (!w) {
-          // Fallback si le navigateur bloque les popups
-          window.location.href = fedapayData.payment_url;
-        }
-      } else {
-        toast({
-          title: "Paiement initié",
-          description: "Votre demande de paiement a été enregistrée. Un agent vous contactera."
-        });
-        onBack();
+        setLoading(false);
       }
     } catch (error: any) {
       console.error('Payment error:', error);
@@ -196,7 +259,6 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
         title: "Erreur de paiement",
         description: error.message || "Une erreur s'est produite. Veuillez réessayer."
       });
-    } finally {
       setLoading(false);
     }
   };
@@ -245,7 +307,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
             <CardContent className="space-y-4">
               <RadioGroup 
                 value={typePaiement} 
-                onValueChange={(v) => setTypePaiement(v as 'da' | 'contribution')}
+                onValueChange={(v) => setTypePaiement(v as 'da' | 'redevance')}
                 className="space-y-3"
               >
                 <div className={`flex items-center space-x-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${typePaiement === 'da' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}>
@@ -257,10 +319,10 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
                   <Badge variant="secondary">{formatMontant(TARIFS.da_par_hectare)}/ha</Badge>
                 </div>
                 
-                <div className={`flex items-center space-x-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${typePaiement === 'contribution' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}>
-                  <RadioGroupItem value="contribution" id="contribution" />
-                  <Label htmlFor="contribution" className="flex-1 cursor-pointer">
-                    <span className="font-semibold block">Contribution régulière</span>
+                <div className={`flex items-center space-x-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${typePaiement === 'redevance' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}>
+                  <RadioGroupItem value="redevance" id="redevance" />
+                  <Label htmlFor="redevance" className="flex-1 cursor-pointer">
+                    <span className="font-semibold block">Redevance modulable</span>
                     <span className="text-sm text-muted-foreground">Paiement des cotisations</span>
                   </Label>
                   <Badge variant="secondary">{formatMontant(TARIFS.jour)}/jour</Badge>
@@ -303,8 +365,8 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
                 plantations.map((plant) => {
                   const etatPaiement = calculerArrieres(plant);
                   const isDAPlant = typePaiement === 'da' && (plant.superficie_ha - (plant.superficie_activee || 0)) > 0;
-                  const isContribPlant = typePaiement === 'contribution' && (plant.superficie_activee || 0) > 0;
-                  const isSelectable = isDAPlant || isContribPlant;
+                  const isRedevancePlant = typePaiement === 'redevance' && (plant.superficie_activee || 0) > 0;
+                  const isSelectable = isDAPlant || isRedevancePlant;
 
                   return (
                     <div 
@@ -340,7 +402,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
                       </div>
 
                       {/* Statut de paiement */}
-                      {typePaiement === 'contribution' && plant.date_activation && (
+                      {typePaiement === 'redevance' && plant.date_activation && (
                         <div className={`flex items-center gap-2 text-sm mt-2 p-2 rounded ${
                           etatPaiement.enAvance 
                             ? 'bg-green-50 text-green-700' 
@@ -402,7 +464,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Calculator className="h-5 w-5 text-primary" />
-                    {typePaiement === 'da' ? 'Droit d\'accès' : 'Contribution'}
+                    {typePaiement === 'da' ? 'Droit d\'accès' : 'Redevance modulable'}
                   </CardTitle>
                 </div>
               </div>
@@ -435,7 +497,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
                   </div>
                 </div>
               ) : (
-                /* Paiement contribution */
+                /* Paiement redevance */
                 <div className="space-y-4">
                   {/* Afficher l'état actuel */}
                   {(() => {
@@ -587,7 +649,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Type</span>
-                  <span className="font-medium">{typePaiement === 'da' ? 'Droit d\'accès' : 'Contribution'}</span>
+                  <span className="font-medium">{typePaiement === 'da' ? 'Droit d\'accès' : 'Redevance modulable'}</span>
                 </div>
                 <div className="flex justify-between border-t pt-3">
                   <span className="font-semibold text-lg">Montant</span>
@@ -603,18 +665,18 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
                 {loading ? (
                   <>
                     <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                    Traitement en cours...
+                    Ouverture du paiement...
                   </>
                 ) : (
                   <>
                     <CreditCard className="h-5 w-5 mr-2" />
-                    Payer maintenant
+                    Payer avec KKiaPay
                   </>
                 )}
               </Button>
 
               <p className="text-xs text-center text-muted-foreground">
-                Vous serez redirigé vers la page de paiement sécurisée
+                Paiement sécurisé par KKiaPay - Mobile Money, Wave, Carte bancaire
               </p>
             </CardContent>
           </Card>
@@ -639,7 +701,7 @@ const ClientPayment = ({ souscripteur, plantations, paiements, onBack }: ClientP
       <footer className="border-t bg-white py-4 mt-6">
         <div className="container mx-auto px-4 text-center">
           <p className="text-xs text-muted-foreground">
-            © 2025 AgriCapital - Tous droits réservés
+            © 2026 AgriCapital - Tous droits réservés
           </p>
         </div>
       </footer>

@@ -24,32 +24,16 @@ serve(async (req) => {
     );
 
     const { 
-      username, 
       email, 
       password, 
       nom_complet,
       telephone,
-      whatsapp,
-      departement,
       equipe_id,
-      relation_rh,
-      taux_commission,
-      region_id,
       photo_url,
       roles 
     } = await req.json();
 
     // Input validation
-    if (!username || !/^[a-zA-Z0-9_]{3,50}$/.test(username)) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: "Nom d'utilisateur invalide. Doit contenir 3-50 caractères alphanumériques." 
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
-    }
-
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 255) {
       return new Response(
         JSON.stringify({ 
@@ -80,35 +64,9 @@ serve(async (req) => {
       );
     }
 
-    if (telephone && !/^\d{10}$/.test(telephone)) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: "Format de téléphone invalide. Doit être 10 chiffres." 
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
-    }
+    console.log("User creation initiated for:", email);
 
-    console.log("User creation initiated");
-
-    // Check if user already exists
-    const { data: existingProfile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("username", username)
-      .single();
-
-    if (existingProfile) {
-      return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: "Un utilisateur avec ce nom d'utilisateur existe déjà" 
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
-      );
-    }
-
+    // Check if user already exists by email
     const { data: existingEmail } = await supabase
       .from("profiles")
       .select("id")
@@ -137,26 +95,22 @@ serve(async (req) => {
       throw authError;
     }
 
-    console.log("User authentication record created");
+    console.log("User authentication record created:", authData.user.id);
 
     // Create profile
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .insert({
-          id: authData.user.id,
-          username,
-          email,
-          nom_complet,
-          telephone: telephone || null,
-          whatsapp: whatsapp || null,
-          departement: departement || null,
-          equipe_id: equipe_id || null,
-          relation_rh: relation_rh || "Employé",
-          taux_commission: taux_commission || null,
-          region_id: region_id || null,
-          photo_url: photo_url || null,
-          est_actif: true,
-        });
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .insert({
+        id: authData.user.id,
+        user_id: authData.user.id,
+        email,
+        nom_complet,
+        telephone: telephone || null,
+        role: (roles && roles.length > 0) ? roles[0] : 'user',
+        equipe_id: equipe_id || null,
+        photo_url: photo_url || null,
+        actif: true,
+      });
 
     if (profileError) {
       console.error("Profile error:", profileError);
@@ -167,23 +121,29 @@ serve(async (req) => {
 
     console.log("Profile created successfully");
 
-    // Create roles
+    // Create roles in user_roles table
     if (roles && roles.length > 0) {
-      const roleInserts = roles.map((role: string) => ({
-        user_id: authData.user.id,
-        role: role,
-      }));
+      const validRoles = ['super_admin', 'directeur_tc', 'responsable_zone', 'comptable', 'commercial', 'service_client', 'operations', 'user'];
+      const roleInserts = roles
+        .filter((role: string) => validRoles.includes(role))
+        .map((role: string) => ({
+          user_id: authData.user.id,
+          role: role,
+        }));
 
-      const { error: rolesError } = await supabase
-        .from("user_roles")
-        .insert(roleInserts);
+      if (roleInserts.length > 0) {
+        const { error: rolesError } = await supabase
+          .from("user_roles")
+          .insert(roleInserts);
 
-      if (rolesError) {
-        console.error("Roles error:", rolesError);
-        throw rolesError;
+        if (rolesError) {
+          console.error("Roles error:", rolesError);
+          // Don't throw - profile is already created, just log the error
+          console.log("Warning: Could not assign roles, but user was created");
+        } else {
+          console.log("User roles assigned successfully");
+        }
       }
-
-      console.log("User roles assigned successfully");
     }
 
     return new Response(
@@ -191,7 +151,6 @@ serve(async (req) => {
         success: true,
         message: "Utilisateur créé avec succès",
         user_id: authData.user.id,
-        username,
         email,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }

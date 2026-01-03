@@ -26,3 +26,9 @@ verify_jwt = false
 
 [functions.fedapay-verify-transaction]
 verify_jwt = false
+
+[functions.kkiapay-create-transaction]
+verify_jwt = false
+
+[functions.kkiapay-verify-transaction]
+verify_jwt = false
