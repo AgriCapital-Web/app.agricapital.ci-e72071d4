@@ -1,14 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 
 declare global {
   interface Window {
     openKkiapayWidget: (config: KkiapayConfig) => void;
-    addKkiapayCloseListener: (callback: () => void) => void;
-    addKkiapaySuccessListener: (callback: (response: KkiapayResponse) => void) => void;
-    addKkiapayFailedListener: (callback: (response: KkiapayError) => void) => void;
-    removeKkiapayCloseListener: (callback: () => void) => void;
-    removeKkiapaySuccessListener: (callback: () => void) => void;
-    removeKkiapayFailedListener: (callback: () => void) => void;
+    addKkiapayListener: (event: string, callback: (data: any) => void) => void;
+    removeKkiapayListener: (event: string, callback: (data: any) => void) => void;
   }
 }
 
@@ -45,70 +41,97 @@ export interface KkiapayError {
   error?: string;
 }
 
-// KKiaPay public key from environment
+// KKiaPay public key - à récupérer depuis les secrets en production
 const KKIAPAY_PUBLIC_KEY = '193bbb7e7387d1c3ac16ced9d47fe52fad2b228e';
 
 export const useKkiapay = () => {
   const scriptLoaded = useRef(false);
+  const successCallback = useRef<((response: KkiapayResponse) => void) | null>(null);
+  const failedCallback = useRef<((error: KkiapayError) => void) | null>(null);
+  const closeCallback = useRef<(() => void) | null>(null);
 
   useEffect(() => {
+    // Éviter le double chargement
     if (scriptLoaded.current) return;
     
-    // Check if script is already loaded
-    if (document.querySelector('script[src="https://cdn.kkiapay.me/k.js"]')) {
+    // Vérifier si le script est déjà chargé
+    const existingScript = document.querySelector('script[src="https://cdn.kkiapay.me/k.js"]');
+    if (existingScript) {
       scriptLoaded.current = true;
       return;
     }
 
-    // Load KKiaPay script
+    // Charger le SDK KKiaPay
     const script = document.createElement('script');
     script.src = 'https://cdn.kkiapay.me/k.js';
     script.async = true;
     script.onload = () => {
       scriptLoaded.current = true;
-      console.log('KKiaPay SDK loaded');
+      console.log('KKiaPay SDK chargé avec succès');
+      
+      // Configurer les listeners globaux
+      if (window.addKkiapayListener) {
+        window.addKkiapayListener('success', (response: KkiapayResponse) => {
+          console.log('KKiaPay Success Event:', response);
+          if (successCallback.current) {
+            successCallback.current(response);
+          }
+        });
+
+        window.addKkiapayListener('failed', (error: KkiapayError) => {
+          console.log('KKiaPay Failed Event:', error);
+          if (failedCallback.current) {
+            failedCallback.current(error);
+          }
+        });
+
+        window.addKkiapayListener('close', () => {
+          console.log('KKiaPay Widget fermé');
+          if (closeCallback.current) {
+            closeCallback.current();
+          }
+        });
+      }
+    };
+    script.onerror = () => {
+      console.error('Erreur lors du chargement du SDK KKiaPay');
     };
     document.body.appendChild(script);
-
-    return () => {
-      // Cleanup listeners on unmount
-    };
   }, []);
 
-  const openPayment = (config: Omit<KkiapayConfig, 'key'>) => {
+  const openPayment = useCallback((config: Omit<KkiapayConfig, 'key'>) => {
     if (!window.openKkiapayWidget) {
-      console.error('KKiaPay SDK not loaded');
+      console.error('KKiaPay SDK non chargé');
       return false;
     }
 
-    window.openKkiapayWidget({
-      ...config,
-      key: KKIAPAY_PUBLIC_KEY,
-      sandbox: false, // Production mode
-      countries: ['CI'], // Côte d'Ivoire
-      paymentMethods: ['momo', 'card', 'wave'] // Mobile money, carte, Wave
-    });
-    
-    return true;
-  };
-
-  const onSuccess = (callback: (response: KkiapayResponse) => void) => {
-    if (window.addKkiapaySuccessListener) {
-      window.addKkiapaySuccessListener(callback);
+    try {
+      window.openKkiapayWidget({
+        ...config,
+        key: KKIAPAY_PUBLIC_KEY,
+        sandbox: false, // Mode production
+        countries: ['CI'], // Côte d'Ivoire uniquement
+        paymentMethods: ['momo', 'wave', 'card'], // Mobile Money, Wave, Carte
+        theme: '#00643C' // Couleur AgriCapital
+      });
+      return true;
+    } catch (error) {
+      console.error('Erreur ouverture widget KKiaPay:', error);
+      return false;
     }
-  };
+  }, []);
 
-  const onFailed = (callback: (error: KkiapayError) => void) => {
-    if (window.addKkiapayFailedListener) {
-      window.addKkiapayFailedListener(callback);
-    }
-  };
+  const onSuccess = useCallback((callback: (response: KkiapayResponse) => void) => {
+    successCallback.current = callback;
+  }, []);
 
-  const onClose = (callback: () => void) => {
-    if (window.addKkiapayCloseListener) {
-      window.addKkiapayCloseListener(callback);
-    }
-  };
+  const onFailed = useCallback((callback: (error: KkiapayError) => void) => {
+    failedCallback.current = callback;
+  }, []);
+
+  const onClose = useCallback((callback: () => void) => {
+    closeCallback.current = callback;
+  }, []);
 
   return {
     openPayment,

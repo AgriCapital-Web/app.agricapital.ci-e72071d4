@@ -1,9 +1,8 @@
 import MainLayout from "@/components/layout/MainLayout";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Users, Gift, Shield, MapPin, Settings2, List, Bell, Globe, Package, UsersRound, UserPlus } from "lucide-react";
+import { Users, Shield, MapPin, Settings2, List, Bell, Globe, Package, UsersRound, UserPlus } from "lucide-react";
 import Utilisateurs from "@/pages/Utilisateurs";
-import Promotions from "@/pages/Promotions";
 import Offres from "@/pages/Offres";
 import Equipes from "@/pages/Equipes";
 import AccountRequests from "@/pages/AccountRequests";
@@ -45,12 +44,7 @@ const Parametres = () => {
               </TabsTrigger>
               <TabsTrigger value="offres" className="text-xs sm:text-sm">
                 <Package className="h-4 w-4 mr-1 sm:mr-2" />
-                Offres
-              </TabsTrigger>
-              <TabsTrigger value="promotions" className="text-xs sm:text-sm">
-                <Gift className="h-4 w-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">Promotions</span>
-                <span className="sm:hidden">Promos</span>
+                Offres & Promos
               </TabsTrigger>
               <TabsTrigger value="roles" className="text-xs sm:text-sm">
                 <Shield className="h-4 w-4 mr-1 sm:mr-2" />
@@ -93,10 +87,6 @@ const Parametres = () => {
 
             <TabsContent value="offres">
               <Offres />
-            </TabsContent>
-
-            <TabsContent value="promotions">
-              <Promotions />
             </TabsContent>
 
             <TabsContent value="roles">

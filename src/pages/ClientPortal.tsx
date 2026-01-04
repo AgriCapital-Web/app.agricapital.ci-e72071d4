@@ -5,9 +5,11 @@ import ClientDashboard from "./client/ClientDashboard";
 import ClientPayment from "./client/ClientPayment";
 import ClientPortfolio from "./client/ClientPortfolio";
 import ClientPaymentHistory from "./client/ClientPaymentHistory";
+import ClientStatistics from "./client/ClientStatistics";
 import PaymentReturn from "./client/PaymentReturn";
+import InstallPrompt from "@/components/pwa/InstallPrompt";
 
-type View = 'home' | 'dashboard' | 'payment' | 'portfolio' | 'history' | 'payment-return';
+type View = 'home' | 'dashboard' | 'payment' | 'portfolio' | 'history' | 'statistics' | 'payment-return';
 
 const ClientPortal = () => {
   const [searchParams] = useSearchParams();
@@ -68,12 +70,15 @@ const ClientPortal = () => {
     }
   };
 
-  switch (view) {
-    case 'home':
-      return <ClientHome onLogin={handleLogin} />;
-    
-    case 'dashboard':
-      return (
+  return (
+    <>
+      <InstallPrompt />
+      
+      {view === 'home' && (
+        <ClientHome onLogin={handleLogin} />
+      )}
+      
+      {view === 'dashboard' && (
         <ClientDashboard
           souscripteur={souscripteur}
           plantations={plantations}
@@ -81,46 +86,52 @@ const ClientPortal = () => {
           onPayment={() => setView('payment')}
           onPortfolio={() => setView('portfolio')}
           onHistory={() => setView('history')}
+          onStatistics={() => setView('statistics')}
           onLogout={handleLogout}
         />
-      );
-    
-    case 'payment':
-      return (
+      )}
+      
+      {view === 'payment' && (
         <ClientPayment
           souscripteur={souscripteur}
           plantations={plantations}
           paiements={paiements}
           onBack={() => setView('dashboard')}
         />
-      );
-    
-    case 'portfolio':
-      return (
+      )}
+      
+      {view === 'portfolio' && (
         <ClientPortfolio
           souscripteur={souscripteur}
           plantations={plantations}
           paiements={paiements}
           onBack={() => setView('dashboard')}
         />
-      );
+      )}
 
-    case 'history':
-      return (
+      {view === 'history' && (
         <ClientPaymentHistory
           souscripteur={souscripteur}
           plantations={plantations}
           paiements={paiements}
           onBack={() => setView('dashboard')}
         />
-      );
+      )}
 
-    case 'payment-return':
-      return <PaymentReturn onBack={handleBackFromPaymentReturn} />;
-    
-    default:
-      return <ClientHome onLogin={handleLogin} />;
-  }
+      {view === 'statistics' && (
+        <ClientStatistics
+          souscripteur={souscripteur}
+          plantations={plantations}
+          paiements={paiements}
+          onBack={() => setView('dashboard')}
+        />
+      )}
+
+      {view === 'payment-return' && (
+        <PaymentReturn onBack={handleBackFromPaymentReturn} />
+      )}
+    </>
+  );
 };
 
 export default ClientPortal;

@@ -16,7 +16,8 @@ import {
   CheckCircle,
   AlertTriangle,
   Clock,
-  History
+  History,
+  BarChart2
 } from "lucide-react";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -28,6 +29,7 @@ interface ClientDashboardProps {
   onPayment: () => void;
   onPortfolio: () => void;
   onHistory: () => void;
+  onStatistics: () => void;
   onLogout: () => void;
 }
 
@@ -38,6 +40,7 @@ const ClientDashboard = ({
   onPayment, 
   onPortfolio,
   onHistory,
+  onStatistics,
   onLogout 
 }: ClientDashboardProps) => {
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -221,6 +224,16 @@ const ClientDashboard = ({
           >
             <History className="h-5 w-5" />
             Historique des paiements
+            <ArrowRight className="h-5 w-5 ml-auto" />
+          </Button>
+
+          <Button 
+            onClick={onStatistics}
+            variant="outline"
+            className="w-full h-14 text-base font-semibold border-2 border-blue-500/30 text-blue-600 hover:bg-blue-50 gap-3 transition-all"
+          >
+            <BarChart2 className="h-5 w-5" />
+            Mes statistiques
             <ArrowRight className="h-5 w-5 ml-auto" />
           </Button>
         </div>
